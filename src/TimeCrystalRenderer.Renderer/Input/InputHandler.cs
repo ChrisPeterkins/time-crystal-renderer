@@ -4,7 +4,7 @@ using TimeCrystalRenderer.Renderer.Rendering;
 namespace TimeCrystalRenderer.Renderer.Input;
 
 /// <summary>
-/// Wires mouse and keyboard input to camera controls.
+/// Wires mouse and keyboard input to camera controls and keyboard shortcuts.
 /// Left-drag rotates, scroll zooms, middle-drag pans.
 /// </summary>
 public sealed class InputHandler
@@ -18,6 +18,11 @@ public sealed class InputHandler
     private bool _isPanning;
     private float _lastMouseX;
     private float _lastMouseY;
+
+    /// <summary>
+    /// Fired when a keyboard shortcut key is pressed (e.g. S, O, Escape).
+    /// </summary>
+    public event Action<Key>? KeyPressed;
 
     public InputHandler(OrbitCamera camera)
     {
@@ -33,6 +38,16 @@ public sealed class InputHandler
             mouse.MouseMove += OnMouseMove;
             mouse.Scroll += OnScroll;
         }
+
+        foreach (var keyboard in input.Keyboards)
+        {
+            keyboard.KeyDown += OnKeyDown;
+        }
+    }
+
+    private void OnKeyDown(IKeyboard keyboard, Key key, int scancode)
+    {
+        KeyPressed?.Invoke(key);
     }
 
     private void OnMouseDown(IMouse mouse, MouseButton button)

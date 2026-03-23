@@ -16,15 +16,24 @@ namespace TimeCrystalRenderer.Renderer;
 public sealed class RenderWindow : IDisposable
 {
     private readonly TriangleMesh _mesh;
+    private readonly string _stlPath;
+    private readonly string _objPath;
+
     private IWindow? _window;
     private GL? _gl;
     private MeshRenderer? _meshRenderer;
     private OrbitCamera? _camera;
     private InputHandler? _inputHandler;
+    private int _frameCount;
+    private double _fpsTimer;
+    private int _displayFps;
 
-    public RenderWindow(TriangleMesh mesh)
+    public RenderWindow(TriangleMesh mesh, string stlPath = "time_crystal.stl",
+                        string objPath = "time_crystal.obj")
     {
         _mesh = mesh;
+        _stlPath = stlPath;
+        _objPath = objPath;
     }
 
     public void Run()
@@ -72,15 +81,39 @@ public sealed class RenderWindow : IDisposable
             Pitch = MathF.PI / 6f,
         };
 
-        // Wire up mouse input
+        // Wire up input
         var input = _window!.CreateInput();
         _inputHandler = new InputHandler(_camera);
         _inputHandler.RegisterCallbacks(input);
+        _inputHandler.KeyPressed += OnKeyPressed;
 
         Console.WriteLine("Viewer controls:");
         Console.WriteLine("  Left-drag:   Rotate");
         Console.WriteLine("  Scroll:      Zoom");
         Console.WriteLine("  Middle-drag: Pan");
+        Console.WriteLine("  S:           Save STL");
+        Console.WriteLine("  O:           Save OBJ");
+        Console.WriteLine("  Escape:      Quit");
+    }
+
+    private void OnKeyPressed(Key key)
+    {
+        switch (key)
+        {
+            case Key.S:
+                StlExporter.Export(_mesh, _stlPath);
+                Console.WriteLine($"Saved STL: {_stlPath}");
+                break;
+
+            case Key.O:
+                ObjExporter.Export(_mesh, _objPath);
+                Console.WriteLine($"Saved OBJ: {_objPath}");
+                break;
+
+            case Key.Escape:
+                _window?.Close();
+                break;
+        }
     }
 
     private void OnRender(double deltaTime)
@@ -96,6 +129,23 @@ public sealed class RenderWindow : IDisposable
         var lightDirection = Vector3.Normalize(new Vector3(-0.5f, -1f, -0.3f));
 
         _meshRenderer!.Draw(model, view, projection, lightDirection, _camera.Position);
+
+        UpdateFpsCounter(deltaTime);
+    }
+
+    private void UpdateFpsCounter(double deltaTime)
+    {
+        _frameCount++;
+        _fpsTimer += deltaTime;
+
+        if (_fpsTimer >= 1.0)
+        {
+            _displayFps = _frameCount;
+            _frameCount = 0;
+            _fpsTimer = 0;
+
+            _window!.Title = $"Time Crystal Renderer | {_mesh.TriangleCount:N0} tris | {_displayFps} FPS";
+        }
     }
 
     private void OnResize(Vector2D<int> size)
