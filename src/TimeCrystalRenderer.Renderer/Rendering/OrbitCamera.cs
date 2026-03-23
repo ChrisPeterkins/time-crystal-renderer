@@ -10,6 +10,8 @@ public sealed class OrbitCamera
     private const float MinPitch = -89f * MathF.PI / 180f;
     private const float MaxPitch = 89f * MathF.PI / 180f;
     private const float MinDistance = 1f;
+    private const float NearClipPlane = 0.1f;
+    private const float FarClipPlane = 10000f;
 
     /// <summary>
     /// The point the camera orbits around.
@@ -56,7 +58,7 @@ public sealed class OrbitCamera
     public Matrix4x4 GetProjectionMatrix(float aspectRatio)
     {
         float fovRadians = FieldOfView * MathF.PI / 180f;
-        return Matrix4x4.CreatePerspectiveFieldOfView(fovRadians, aspectRatio, 0.1f, 10000f);
+        return Matrix4x4.CreatePerspectiveFieldOfView(fovRadians, aspectRatio, NearClipPlane, FarClipPlane);
     }
 
     /// <summary>

@@ -7,111 +7,192 @@ using TimeCrystalRenderer.Core.Mesh;
 using TimeCrystalRenderer.Core.Voxel;
 using TimeCrystalRenderer.Renderer;
 
-const int GridSize = 64;
-const int Generations = 200;
+const int GridSize = 128;
+const int Generations = 300;
+const int SnapshotInterval = 10;
+const int GrowthDelayMs = 500;
 const string StlPath = "time_crystal.stl";
 const string ObjPath = "time_crystal.obj";
 
-bool smooth = true;
-string currentPattern = "R-pentomino";
+bool isSmooth = true;
+string currentPattern = "Soup";
+bool isLiveMode = true;
 
 Console.WriteLine("=== Time Crystal Renderer ===\n");
 
-// Generate the initial crystal
-var mesh = GenerateCrystal(currentPattern, smooth);
+// Initial launch goes straight to live growth mode
+LaunchViewer();
 
-// Launch viewer with regeneration support
-using var window = new RenderWindow(mesh, StlPath, ObjPath);
-window.RegenerationRequested += key => OnRegenerate(key, window);
-window.Run();
-
-void OnRegenerate(Key key, RenderWindow viewer)
+void LaunchViewer()
 {
-    switch (key)
-    {
-        case Key.Number1: currentPattern = "R-pentomino"; break;
-        case Key.Number2: currentPattern = "Glider Gun"; break;
-        case Key.Number3: currentPattern = "Acorn"; break;
-        case Key.Number4: currentPattern = "Random"; break;
-        case Key.Number5: currentPattern = "Glider"; break;
-        case Key.T:
-            smooth = !smooth;
-            Console.WriteLine($"Smoothing: {(smooth ? "ON" : "OFF")}");
-            break;
-        case Key.R:
-            break; // Reload same pattern
-    }
+    var emptyMesh = new TriangleMesh(0);
+    using var window = new RenderWindow(emptyMesh, StlPath, ObjPath);
 
-    // Run regeneration on a background thread to avoid blocking the render loop
-    Task.Run(() =>
+    CancellationTokenSource? activeCancellation = null;
+
+    window.RegenerationRequested += key =>
     {
-        var newMesh = GenerateCrystal(currentPattern, smooth);
-        viewer.QueueMeshUpdate(newMesh, Generations);
-    });
+        // Cancel any in-progress generation
+        activeCancellation?.Cancel();
+
+        switch (key)
+        {
+            case Key.Number1: currentPattern = "R-pentomino"; break;
+            case Key.Number2: currentPattern = "Glider Gun"; break;
+            case Key.Number3: currentPattern = "Acorn"; break;
+            case Key.Number4: currentPattern = "Random"; break;
+            case Key.Number5: currentPattern = "Glider"; break;
+            case Key.Number6: currentPattern = "Soup"; break;
+            case Key.T:
+                isSmooth = !isSmooth;
+                Console.WriteLine($"Smoothing: {(isSmooth ? "ON" : "OFF")}");
+                break;
+            case Key.L:
+                isLiveMode = !isLiveMode;
+                Console.WriteLine($"Live growth: {(isLiveMode ? "ON" : "OFF")}");
+                break;
+            case Key.R:
+                break; // Reload same pattern
+        }
+
+        activeCancellation = new CancellationTokenSource();
+        var token = activeCancellation.Token;
+
+        if (isLiveMode)
+        {
+            StartLiveGrowth(window, token);
+        }
+        else
+        {
+            Task.Run(() =>
+            {
+                var mesh = GenerateBatch(currentPattern, isSmooth);
+                if (!token.IsCancellationRequested)
+                    window.QueueMeshUpdate(mesh, Generations);
+            }, token);
+        }
+    };
+
+    // Start initial live growth
+    activeCancellation = new CancellationTokenSource();
+    StartLiveGrowth(window, activeCancellation.Token);
+
+    PrintControls();
+    window.Run();
+
+    activeCancellation.Cancel();
 }
 
-TriangleMesh GenerateCrystal(string pattern, bool useSmoothing)
+void StartLiveGrowth(RenderWindow window, CancellationToken token)
 {
+    Task.Run(() =>
+    {
+        Console.WriteLine($"\nGrowing: {currentPattern} (smooth: {isSmooth}, live mode)");
+
+        var engine = new GameOfLifeEngine(GridSize, GridSize);
+        ApplyPattern(engine, currentPattern);
+
+        var generator = new CrystalGenerator(engine, Generations, SnapshotInterval, isSmooth, GrowthDelayMs);
+
+        generator.MeshUpdated += (mesh, gen) =>
+        {
+            if (!token.IsCancellationRequested)
+            {
+                Console.WriteLine($"  Gen {gen}/{Generations}: {mesh.TriangleCount:N0} tris");
+                window.QueueMeshUpdate(mesh, gen);
+            }
+        };
+
+        generator.Completed += finalMesh =>
+        {
+            if (!token.IsCancellationRequested)
+            {
+                Console.WriteLine($"  Complete: {finalMesh.TriangleCount:N0} tris, {finalMesh.VertexCount:N0} verts");
+                window.QueueMeshUpdate(finalMesh, Generations);
+            }
+        };
+
+        generator.Generate(token);
+    }, token);
+}
+
+TriangleMesh GenerateBatch(string pattern, bool useSmoothing)
+{
+    const int TrailLength = 3;
     var stopwatch = Stopwatch.StartNew();
-    Console.WriteLine($"\nGenerating: {pattern} (smooth: {useSmoothing})...");
+    Console.WriteLine($"\nGenerating: {pattern} (smooth: {useSmoothing}, trails: {TrailLength})...");
 
     var engine = new GameOfLifeEngine(GridSize, GridSize);
     ApplyPattern(engine, pattern);
 
-    var volume = VoxelVolumeBuilder.Build(engine, Generations);
+    // Build with trails so dead cells fade instead of vanishing,
+    // producing thicker, more connected structures
+    var trailField = VoxelVolumeBuilder.BuildWithTrails(engine, Generations, TrailLength);
+    int width = GridSize;
+    int height = GridSize;
+    int sliceSize = width * height;
+
+    float Sampler(int x, int y, int z)
+    {
+        if (x < 0 || x >= width || y < 0 || y >= height ||
+            z < 0 || z >= Generations)
+            return 0f;
+        return trailField[x + y * width + z * sliceSize];
+    }
 
     var extractor = new MarchingCubesExtractor();
-    TriangleMesh result;
-
-    if (useSmoothing)
-    {
-        var smoothedField = VolumeSmoothing.BoxBlur3D(volume);
-        int sizeX = volume.SizeX;
-        int sizeY = volume.SizeY;
-
-        float Sampler(int x, int y, int z)
-        {
-            if (x < 0 || x >= volume.SizeX || y < 0 || y >= volume.SizeY ||
-                z < 0 || z >= volume.SizeZ)
-                return 0f;
-            return smoothedField[x + y * sizeX + z * sizeX * sizeY];
-        }
-
-        result = extractor.Extract(volume.SizeX, volume.SizeY, volume.SizeZ,
-                                   Sampler, ColorMapper.GenerationToColor);
-    }
-    else
-    {
-        result = extractor.Extract(volume, ColorMapper.GenerationToColor);
-    }
+    var result = extractor.Extract(width, height, Generations, Sampler, ColorMapper.GenerationToColor);
 
     int beforeVertices = result.VertexCount;
     result.DeduplicateAndSmoothNormals();
-
     Console.WriteLine($"  Done in {stopwatch.ElapsedMilliseconds}ms: {result.TriangleCount:N0} tris, " +
                       $"{beforeVertices:N0} -> {result.VertexCount:N0} verts");
-
     return result;
 }
 
 void ApplyPattern(IAutomatonEngine engine, string pattern)
 {
+    // Random offset so the pattern lands in a different spot each run
+    var (offsetX, offsetY) = PatternLibrary.RandomOffset(engine, margin: 20);
+
     switch (pattern)
     {
         case "R-pentomino":
-            PatternLibrary.ApplyRPentomino(engine);
+            PatternLibrary.ApplyRPentomino(engine, offsetX, offsetY);
             break;
         case "Glider Gun":
-            PatternLibrary.ApplyGliderGun(engine);
+            PatternLibrary.ApplyGliderGun(engine, offsetX, offsetY);
             break;
         case "Acorn":
-            PatternLibrary.ApplyAcorn(engine);
+            PatternLibrary.ApplyAcorn(engine, offsetX, offsetY);
             break;
         case "Random":
             PatternLibrary.ApplyRandom(engine, density: 0.3);
-            break;
+            return; // Already fully random, no perturbation needed
         case "Glider":
-            PatternLibrary.ApplyGlider(engine);
+            PatternLibrary.ApplyGlider(engine, offsetX, offsetY);
             break;
+        case "Soup":
+            PatternLibrary.ApplySoup(engine, density: 0.5, regionFraction: 0.4);
+            return; // Already random
     }
+
+    // Scatter some random cells near the pattern — makes every run unique
+    PatternLibrary.Perturb(engine, cellCount: 12, radius: 20);
+}
+
+void PrintControls()
+{
+    Console.WriteLine("Viewer controls:");
+    Console.WriteLine("  Left-drag:   Rotate");
+    Console.WriteLine("  Scroll:      Zoom");
+    Console.WriteLine("  Middle-drag: Pan");
+    Console.WriteLine();
+    Console.WriteLine("  1: R-pentomino    2: Glider Gun    3: Acorn");
+    Console.WriteLine("  4: Random (full)  5: Glider        6: Soup (central blob)");
+    Console.WriteLine("  T: Toggle smooth  L: Toggle live growth");
+    Console.WriteLine("  R: Reload (same pattern)");
+    Console.WriteLine();
+    Console.WriteLine("  S: Save STL       O: Save OBJ");
+    Console.WriteLine("  Escape: Quit");
 }

@@ -18,6 +18,26 @@ public static class PatternLibrary
     }
 
     /// <summary>
+    /// Random "soup" in a central region, surrounded by empty space.
+    /// This mimics how Game of Life is typically explored — a messy starting blob
+    /// that sends gliders and debris outward into open space.
+    /// </summary>
+    public static void ApplySoup(IAutomatonEngine engine, double density = 0.5,
+                                 double regionFraction = 0.4, int? seed = null)
+    {
+        var random = seed.HasValue ? new Random(seed.Value) : new Random();
+
+        int regionWidth = (int)(engine.Width * regionFraction);
+        int regionHeight = (int)(engine.Height * regionFraction);
+        int startX = (engine.Width - regionWidth) / 2;
+        int startY = (engine.Height - regionHeight) / 2;
+
+        for (int y = startY; y < startY + regionHeight; y++)
+            for (int x = startX; x < startX + regionWidth; x++)
+                engine.SetCell(x, y, random.NextDouble() < density);
+    }
+
+    /// <summary>
     /// The smallest spaceship — moves diagonally one cell every 4 generations.
     /// </summary>
     public static void ApplyGlider(IAutomatonEngine engine, int offsetX = 1, int offsetY = 1)
@@ -86,6 +106,39 @@ public static class PatternLibrary
         // ##..###
         int[,] cells = { { 1, 0 }, { 3, 1 }, { 0, 2 }, { 1, 2 }, { 4, 2 }, { 5, 2 }, { 6, 2 } };
         StampPattern(engine, cells, x, y);
+    }
+
+    /// <summary>
+    /// Scatters random live cells in a radius around the grid center.
+    /// Even a few extra cells near a pattern completely change its evolution,
+    /// producing a unique crystal every run.
+    /// </summary>
+    public static void Perturb(IAutomatonEngine engine, int cellCount = 10, int radius = 15)
+    {
+        var random = new Random();
+        int centerX = engine.Width / 2;
+        int centerY = engine.Height / 2;
+
+        for (int i = 0; i < cellCount; i++)
+        {
+            int x = centerX + random.Next(-radius, radius + 1);
+            int y = centerY + random.Next(-radius, radius + 1);
+
+            if (x >= 0 && x < engine.Width && y >= 0 && y < engine.Height)
+                engine.SetCell(x, y, true);
+        }
+    }
+
+    /// <summary>
+    /// Randomly offsets a pattern's placement within a margin of the grid center.
+    /// Returns the offset so callers know where the pattern landed.
+    /// </summary>
+    public static (int OffsetX, int OffsetY) RandomOffset(IAutomatonEngine engine, int margin = 20)
+    {
+        var random = new Random();
+        int offsetX = engine.Width / 2 - margin + random.Next(margin * 2);
+        int offsetY = engine.Height / 2 - margin + random.Next(margin * 2);
+        return (offsetX, offsetY);
     }
 
     private static void StampPattern(IAutomatonEngine engine, int[,] cells, int offsetX, int offsetY)

@@ -117,18 +117,22 @@ public sealed class TriangleMesh
         _indices = remappedIndices;
     }
 
+    // Large primes for spatial hashing — chosen to minimize collisions
+    // when combining quantized 3D coordinates into a single hash key.
+    private const long HashPrimeX = 73856093L;
+    private const long HashPrimeY = 19349663L;
+    private const long HashPrimeZ = 83492791L;
+
     /// <summary>
     /// Hashes a position into a single long by quantizing each component to a grid.
     /// Vertices within epsilon of each other land in the same bucket.
     /// </summary>
     private static long QuantizePosition(Vector3 position, float epsilon)
     {
-        // Quantize to grid cells. Using primes to reduce hash collisions.
-        long qx = (long)MathF.Round(position.X / epsilon);
-        long qy = (long)MathF.Round(position.Y / epsilon);
-        long qz = (long)MathF.Round(position.Z / epsilon);
+        long quantizedX = (long)MathF.Round(position.X / epsilon);
+        long quantizedY = (long)MathF.Round(position.Y / epsilon);
+        long quantizedZ = (long)MathF.Round(position.Z / epsilon);
 
-        // Combine with large primes to distribute across the long range
-        return qx * 73856093L ^ qy * 19349663L ^ qz * 83492791L;
+        return quantizedX * HashPrimeX ^ quantizedY * HashPrimeY ^ quantizedZ * HashPrimeZ;
     }
 }

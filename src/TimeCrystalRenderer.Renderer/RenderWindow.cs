@@ -17,6 +17,13 @@ namespace TimeCrystalRenderer.Renderer;
 /// </summary>
 public sealed class RenderWindow : IDisposable
 {
+    private const int DefaultWindowWidth = 1280;
+    private const int DefaultWindowHeight = 800;
+    private const float CameraDistanceMultiplier = 1.8f;
+    private const double StatusDisplaySeconds = 3.0;
+
+    private static readonly Vector3 DefaultLightDirection = Vector3.Normalize(new Vector3(-0.5f, -1f, -0.3f));
+
     private TriangleMesh _mesh;
     private readonly string _stlPath;
     private readonly string _objPath;
@@ -64,7 +71,7 @@ public sealed class RenderWindow : IDisposable
     {
         var options = WindowOptions.Default with
         {
-            Size = new Vector2D<int>(1280, 800),
+            Size = new Vector2D<int>(DefaultWindowWidth, DefaultWindowHeight),
             Title = "Time Crystal Renderer",
             API = new GraphicsAPI(ContextAPI.OpenGL, ContextProfile.Core,
                                   ContextFlags.Default, new APIVersion(4, 1))
@@ -113,17 +120,7 @@ public sealed class RenderWindow : IDisposable
 
     private static void PrintControls()
     {
-        Console.WriteLine("Viewer controls:");
-        Console.WriteLine("  Left-drag:   Rotate");
-        Console.WriteLine("  Scroll:      Zoom");
-        Console.WriteLine("  Middle-drag: Pan");
-        Console.WriteLine();
-        Console.WriteLine("  1: R-pentomino    2: Glider Gun    3: Acorn");
-        Console.WriteLine("  4: Random         5: Glider");
-        Console.WriteLine("  T: Toggle smooth  R: Reload (same pattern)");
-        Console.WriteLine();
-        Console.WriteLine("  S: Save STL       O: Save OBJ");
-        Console.WriteLine("  Escape: Quit");
+        // Controls are printed by the host application (Program.cs)
     }
 
     private void OnKeyPressed(Key key)
@@ -150,13 +147,15 @@ public sealed class RenderWindow : IDisposable
                 _window?.Close();
                 break;
 
-            // Pattern and toggle keys — delegate to the host application
+            // Pattern, toggle, and mode keys — delegate to the host application
             case Key.Number1:
             case Key.Number2:
             case Key.Number3:
             case Key.Number4:
             case Key.Number5:
+            case Key.Number6:
             case Key.T:
+            case Key.L:
             case Key.R:
                 _cameraInitialized = false;
                 RegenerationRequested?.Invoke(key);
@@ -178,10 +177,7 @@ public sealed class RenderWindow : IDisposable
             var view = _camera!.GetViewMatrix();
             var projection = _camera.GetProjectionMatrix(aspectRatio);
 
-            // Light coming from upper-right-front
-            var lightDirection = Vector3.Normalize(new Vector3(-0.5f, -1f, -0.3f));
-
-            _meshRenderer.Draw(model, view, projection, lightDirection, _camera.Position);
+            _meshRenderer.Draw(model, view, projection, DefaultLightDirection, _camera.Position);
         }
 
         UpdateTitleBar(deltaTime);
@@ -210,7 +206,7 @@ public sealed class RenderWindow : IDisposable
         _camera = new OrbitCamera
         {
             Target = CenterOfMesh(),
-            Distance = MaxMeshExtent() * 1.8f,
+            Distance = MaxMeshExtent() * CameraDistanceMultiplier,
             Yaw = MathF.PI / 4f,
             Pitch = MathF.PI / 6f,
         };
@@ -222,7 +218,7 @@ public sealed class RenderWindow : IDisposable
     private void ShowStatus(string message)
     {
         _statusMessage = message;
-        _statusTimer = 3.0;
+        _statusTimer = StatusDisplaySeconds;
         Console.WriteLine(message);
     }
 
@@ -261,11 +257,11 @@ public sealed class RenderWindow : IDisposable
         _window?.Dispose();
     }
 
-    private Vector3 CenterOfMesh()
+    private (Vector3 Min, Vector3 Max) ComputeBounds()
     {
         var vertices = _mesh.Vertices;
         if (vertices.Length == 0)
-            return Vector3.Zero;
+            return (Vector3.Zero, Vector3.Zero);
 
         var min = vertices[0].Position;
         var max = vertices[0].Position;
@@ -276,24 +272,18 @@ public sealed class RenderWindow : IDisposable
             max = Vector3.Max(max, vertices[i].Position);
         }
 
+        return (min, max);
+    }
+
+    private Vector3 CenterOfMesh()
+    {
+        var (min, max) = ComputeBounds();
         return (min + max) * 0.5f;
     }
 
     private float MaxMeshExtent()
     {
-        var vertices = _mesh.Vertices;
-        if (vertices.Length == 0)
-            return 100f;
-
-        var min = vertices[0].Position;
-        var max = vertices[0].Position;
-
-        for (int i = 1; i < vertices.Length; i++)
-        {
-            min = Vector3.Min(min, vertices[i].Position);
-            max = Vector3.Max(max, vertices[i].Position);
-        }
-
+        var (min, max) = ComputeBounds();
         var extent = max - min;
         return MathF.Max(extent.X, MathF.Max(extent.Y, extent.Z));
     }

@@ -16,10 +16,11 @@ public sealed class CrystalGenerator
     private readonly int _totalGenerations;
     private readonly int _snapshotInterval;
     private readonly bool _smooth;
+    private readonly int _delayMs;
+    private readonly int _trailLength;
 
     /// <summary>
     /// Fired on the background thread each time a new mesh snapshot is ready.
-    /// The viewer should queue this for GPU upload on the render thread.
     /// </summary>
     public event Action<TriangleMesh, int>? MeshUpdated;
 
@@ -28,13 +29,17 @@ public sealed class CrystalGenerator
     /// </summary>
     public event Action<TriangleMesh>? Completed;
 
+    /// <param name="trailLength">How many generations a dead cell stays partially solid. 0 = no trails.</param>
     public CrystalGenerator(IAutomatonEngine engine, int totalGenerations,
-                            int snapshotInterval = 50, bool smooth = false)
+                            int snapshotInterval = 50, bool smooth = false,
+                            int delayMs = 0, int trailLength = 3)
     {
         _engine = engine;
         _totalGenerations = totalGenerations;
         _snapshotInterval = snapshotInterval;
         _smooth = smooth;
+        _delayMs = delayMs;
+        _trailLength = trailLength;
     }
 
     /// <summary>
@@ -42,7 +47,12 @@ public sealed class CrystalGenerator
     /// </summary>
     public void Generate(CancellationToken cancellationToken = default)
     {
-        var volume = new VoxelVolume(_engine.Width, _engine.Height, _totalGenerations);
+        int width = _engine.Width;
+        int height = _engine.Height;
+        var field = new float[width * height * _totalGenerations];
+        var lastAliveAt = new int[width * height];
+        Array.Fill(lastAliveAt, -_trailLength - 1);
+
         var extractor = new MarchingCubesExtractor();
 
         for (int z = 0; z < _totalGenerations; z++)
@@ -50,13 +60,8 @@ public sealed class CrystalGenerator
             if (cancellationToken.IsCancellationRequested)
                 return;
 
-            // Capture current generation into the volume
-            var state = _engine.CurrentState;
-            for (int y = 0; y < _engine.Height; y++)
-                for (int x = 0; x < _engine.Width; x++)
-                    if (state[y * _engine.Width + x] != 0)
-                        volume[x, y, z] = true;
-
+            // Capture current generation with trails
+            CaptureWithTrails(field, lastAliveAt, z, width, height);
             _engine.Step();
 
             // Emit a snapshot at each interval and at the final generation
@@ -65,51 +70,67 @@ public sealed class CrystalGenerator
 
             if (isSnapshot || isFinal)
             {
-                var mesh = ExtractMesh(volume, z + 1, extractor);
-                MeshUpdated?.Invoke(mesh, z + 1);
+                int completedGenerations = z + 1;
+                var mesh = ExtractFromField(field, width, height, completedGenerations, extractor);
+                MeshUpdated?.Invoke(mesh, completedGenerations);
+
+                if (_delayMs > 0 && !isFinal)
+                    Thread.Sleep(_delayMs);
             }
         }
 
         // Final mesh with full post-processing
-        var finalMesh = ExtractMesh(volume, _totalGenerations, extractor);
+        var finalMesh = ExtractFromField(field, width, height, _totalGenerations, extractor);
         finalMesh.DeduplicateAndSmoothNormals();
         Completed?.Invoke(finalMesh);
     }
 
-    private TriangleMesh ExtractMesh(VoxelVolume volume, int generationsSoFar,
-                                     MarchingCubesExtractor extractor)
+    private void CaptureWithTrails(float[] field, int[] lastAliveAt,
+                                   int z, int width, int height)
     {
-        if (_smooth)
-        {
-            var smoothedField = VolumeSmoothing.BoxBlur3D(volume);
-            int sizeX = volume.SizeX;
-            int sizeY = volume.SizeY;
+        var state = _engine.CurrentState;
 
-            // Create a sampler that reads from the smoothed field, clamped to the
-            // generations computed so far (avoids meshing empty future layers)
-            float Sampler(int x, int y, int z)
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
             {
-                if (z >= generationsSoFar || x < 0 || x >= volume.SizeX ||
-                    y < 0 || y >= volume.SizeY || z < 0 || z >= volume.SizeZ)
-                    return 0f;
-                return smoothedField[x + y * sizeX + z * sizeX * sizeY];
+                int cellIndex = y * width + x;
+                bool isAlive = state[cellIndex] != 0;
+
+                if (isAlive)
+                {
+                    lastAliveAt[cellIndex] = z;
+                    field[x + y * width + z * width * height] = 1f;
+                }
+                else if (_trailLength > 0)
+                {
+                    int generationsSinceDeath = z - lastAliveAt[cellIndex];
+                    if (generationsSinceDeath <= _trailLength)
+                    {
+                        float fade = 1f - (float)generationsSinceDeath / (_trailLength + 1);
+                        field[x + y * width + z * width * height] = fade;
+                    }
+                }
             }
-
-            return extractor.Extract(volume.SizeX, volume.SizeY,
-                                     Math.Min(generationsSoFar + 1, volume.SizeZ),
-                                     Sampler, ColorMapper.GenerationToColor);
         }
+    }
 
-        // Binary extraction limited to generations computed so far
-        float BinarySampler(int x, int y, int z)
+    private TriangleMesh ExtractFromField(float[] field, int width, int height,
+                                          int completedGenerations, MarchingCubesExtractor extractor)
+    {
+        int sliceSize = width * height;
+
+        float Sampler(int x, int y, int z)
         {
-            if (z >= generationsSoFar)
+            if (x < 0 || x >= width || y < 0 || y >= height ||
+                z < 0 || z >= completedGenerations)
                 return 0f;
-            return volume.Sample(x, y, z);
+            return field[x + y * width + z * sliceSize];
         }
 
-        return extractor.Extract(volume.SizeX, volume.SizeY,
-                                 Math.Min(generationsSoFar + 1, volume.SizeZ),
-                                 BinarySampler, ColorMapper.GenerationToColor);
+        int sizeZ = Math.Min(completedGenerations + 1, _totalGenerations);
+        var mesh = extractor.Extract(width, height, sizeZ, Sampler, ColorMapper.GenerationToColor);
+
+        return mesh;
     }
 }
