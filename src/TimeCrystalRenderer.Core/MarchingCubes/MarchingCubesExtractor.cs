@@ -18,23 +18,37 @@ public sealed class MarchingCubesExtractor
     }
 
     /// <summary>
-    /// Extracts a triangle mesh from the voxel volume.
+    /// Extracts a triangle mesh from the voxel volume (binary sampling).
     /// The colorMapper converts a Z (time) coordinate into an RGB color.
     /// </summary>
     public TriangleMesh Extract(VoxelVolume volume, Func<float, float, Vector3> colorMapper,
                                 IProgress<int>? progress = null)
     {
-        int estimatedTriangles = (int)(volume.TotalVoxels / 10);
+        return Extract(volume.SizeX, volume.SizeY, volume.SizeZ,
+                       volume.Sample, colorMapper, progress);
+    }
+
+    /// <summary>
+    /// Extracts a triangle mesh from a smoothed scalar field.
+    /// The sampler function returns a float value at each (x, y, z) coordinate.
+    /// </summary>
+    public TriangleMesh Extract(int sizeX, int sizeY, int sizeZ,
+                                Func<int, int, int, float> sampler,
+                                Func<float, float, Vector3> colorMapper,
+                                IProgress<int>? progress = null)
+    {
+        long totalVoxels = (long)sizeX * sizeY * sizeZ;
+        int estimatedTriangles = (int)(totalVoxels / 10);
         var mesh = new TriangleMesh(Math.Max(estimatedTriangles, 1024));
 
         // Iterate every cube in the volume. Each cube spans from (x,y,z) to (x+1,y+1,z+1).
-        for (int z = 0; z < volume.SizeZ - 1; z++)
+        for (int z = 0; z < sizeZ - 1; z++)
         {
-            for (int y = 0; y < volume.SizeY - 1; y++)
+            for (int y = 0; y < sizeY - 1; y++)
             {
-                for (int x = 0; x < volume.SizeX - 1; x++)
+                for (int x = 0; x < sizeX - 1; x++)
                 {
-                    ProcessCube(volume, mesh, x, y, z, colorMapper);
+                    ProcessCube(sampler, mesh, x, y, z, sizeZ, colorMapper);
                 }
             }
 
@@ -44,8 +58,9 @@ public sealed class MarchingCubesExtractor
         return mesh;
     }
 
-    private void ProcessCube(VoxelVolume volume, TriangleMesh mesh,
-                             int x, int y, int z, Func<float, float, Vector3> colorMapper)
+    private void ProcessCube(Func<int, int, int, float> sampler, TriangleMesh mesh,
+                             int x, int y, int z, int sizeZ,
+                             Func<float, float, Vector3> colorMapper)
     {
         // Step 1: Sample the 8 corners of this cube
         //
@@ -57,14 +72,14 @@ public sealed class MarchingCubesExtractor
         //   |/     |/       Z
         //   3------2
         Span<float> cornerValues = stackalloc float[8];
-        cornerValues[0] = volume.Sample(x,     y,     z);
-        cornerValues[1] = volume.Sample(x + 1, y,     z);
-        cornerValues[2] = volume.Sample(x + 1, y,     z + 1);
-        cornerValues[3] = volume.Sample(x,     y,     z + 1);
-        cornerValues[4] = volume.Sample(x,     y + 1, z);
-        cornerValues[5] = volume.Sample(x + 1, y + 1, z);
-        cornerValues[6] = volume.Sample(x + 1, y + 1, z + 1);
-        cornerValues[7] = volume.Sample(x,     y + 1, z + 1);
+        cornerValues[0] = sampler(x,     y,     z);
+        cornerValues[1] = sampler(x + 1, y,     z);
+        cornerValues[2] = sampler(x + 1, y,     z + 1);
+        cornerValues[3] = sampler(x,     y,     z + 1);
+        cornerValues[4] = sampler(x,     y + 1, z);
+        cornerValues[5] = sampler(x + 1, y + 1, z);
+        cornerValues[6] = sampler(x + 1, y + 1, z + 1);
+        cornerValues[7] = sampler(x,     y + 1, z + 1);
 
         // Step 2: Build the cube index from which corners are inside the surface
         int cubeIndex = 0;
@@ -108,7 +123,7 @@ public sealed class MarchingCubesExtractor
         }
 
         // Step 5: Emit triangles from the lookup table
-        float maxZ = volume.SizeZ - 1;
+        float maxZ = sizeZ - 1;
         for (int i = 0; MarchingCubesLookupTables.TriTable[cubeIndex, i] != -1; i += 3)
         {
             Vector3 p0 = edgeVertices[MarchingCubesLookupTables.TriTable[cubeIndex, i]];

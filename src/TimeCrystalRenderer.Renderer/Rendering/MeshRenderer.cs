@@ -23,11 +23,22 @@ public sealed class MeshRenderer : IDisposable
         _shader = shader;
     }
 
+    public bool HasMesh => _indexCount > 0;
+
     /// <summary>
     /// Uploads mesh vertex and index data to GPU buffers.
+    /// Can be called multiple times to replace the current mesh (for progressive rendering).
     /// </summary>
     public unsafe void Upload(TriangleMesh mesh)
     {
+        // Clean up previous buffers if re-uploading
+        if (_vao != 0)
+        {
+            _gl.DeleteVertexArray(_vao);
+            _gl.DeleteBuffer(_vbo);
+            _gl.DeleteBuffer(_ebo);
+        }
+
         _indexCount = (uint)mesh.IndexCount;
 
         _vao = _gl.GenVertexArray();

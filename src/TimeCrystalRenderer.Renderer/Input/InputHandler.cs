@@ -13,7 +13,7 @@ public sealed class InputHandler
     private const float ZoomSensitivity = 5f;
     private const float PanSensitivity = 0.1f;
 
-    private readonly OrbitCamera _camera;
+    private OrbitCamera _camera;
     private bool _isRotating;
     private bool _isPanning;
     private float _lastMouseX;
@@ -25,6 +25,14 @@ public sealed class InputHandler
     public event Action<Key>? KeyPressed;
 
     public InputHandler(OrbitCamera camera)
+    {
+        _camera = camera;
+    }
+
+    /// <summary>
+    /// Replaces the camera (used when progressive rendering reinitializes the camera).
+    /// </summary>
+    public void SetCamera(OrbitCamera camera)
     {
         _camera = camera;
     }
