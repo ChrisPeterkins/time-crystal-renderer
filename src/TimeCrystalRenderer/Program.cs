@@ -4,6 +4,7 @@ using TimeCrystalRenderer.Core.Automata;
 using TimeCrystalRenderer.Core.MarchingCubes;
 using TimeCrystalRenderer.Core.Mesh;
 using TimeCrystalRenderer.Core.Voxel;
+using TimeCrystalRenderer.Renderer;
 
 const int GridSize = 64;
 const int Generations = 200;
@@ -44,8 +45,12 @@ Console.Write($"Exporting to {OutputPath}... ");
 StlExporter.Export(mesh, OutputPath);
 
 var fileInfo = new FileInfo(OutputPath);
-Console.WriteLine($"done ({fileInfo.Length / 1024.0 / 1024.0:F1} MB)");
-Console.WriteLine($"\nOpen {OutputPath} in macOS Preview or MeshLab to see your time crystal.");
+Console.WriteLine($"done ({fileInfo.Length / 1024.0 / 1024.0:F1} MB)\n");
+
+// Step 5: Launch interactive viewer
+Console.WriteLine("Launching viewer...");
+using var window = new RenderWindow(mesh);
+window.Run();
 
 static long CountAliveVoxels(VoxelVolume volume)
 {

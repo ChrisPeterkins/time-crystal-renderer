@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\TimeCrystalRenderer.Core\TimeCrystalRenderer.Core.csproj" />
+    <ProjectReference Include="..\TimeCrystalRenderer.Renderer\TimeCrystalRenderer.Renderer.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

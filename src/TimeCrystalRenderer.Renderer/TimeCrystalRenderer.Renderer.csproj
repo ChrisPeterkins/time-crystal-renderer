@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\TimeCrystalRenderer.Core\TimeCrystalRenderer.Core.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Silk.NET" Version="2.23.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="Shaders\*.vert" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Shaders\*.frag" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
