@@ -61,32 +61,31 @@ public static class PatternLibrary
     /// <summary>
     /// R-pentomino — a tiny pattern that evolves chaotically for 1103 generations.
     /// </summary>
-    public static void ApplyRPentomino(IAutomatonEngine engine, int offsetX = -1, int offsetY = -1)
+    public static void ApplyRPentomino(IAutomatonEngine engine, int? offsetX = null, int? offsetY = null)
     {
-        // Center on grid if offsets are negative
-        if (offsetX < 0) offsetX = engine.Width / 2 - 1;
-        if (offsetY < 0) offsetY = engine.Height / 2 - 1;
+        int x = offsetX ?? engine.Width / 2 - 1;
+        int y = offsetY ?? engine.Height / 2 - 1;
 
         // .##
         // ##.
         // .#.
         int[,] cells = { { 1, 0 }, { 2, 0 }, { 0, 1 }, { 1, 1 }, { 1, 2 } };
-        StampPattern(engine, cells, offsetX, offsetY);
+        StampPattern(engine, cells, x, y);
     }
 
     /// <summary>
     /// Acorn — takes 5206 generations to stabilize from just 7 cells.
     /// </summary>
-    public static void ApplyAcorn(IAutomatonEngine engine, int offsetX = -1, int offsetY = -1)
+    public static void ApplyAcorn(IAutomatonEngine engine, int? offsetX = null, int? offsetY = null)
     {
-        if (offsetX < 0) offsetX = engine.Width / 2 - 3;
-        if (offsetY < 0) offsetY = engine.Height / 2 - 1;
+        int x = offsetX ?? engine.Width / 2 - 3;
+        int y = offsetY ?? engine.Height / 2 - 1;
 
         // .#.....
         // ...#...
         // ##..###
         int[,] cells = { { 1, 0 }, { 3, 1 }, { 0, 2 }, { 1, 2 }, { 4, 2 }, { 5, 2 }, { 6, 2 } };
-        StampPattern(engine, cells, offsetX, offsetY);
+        StampPattern(engine, cells, x, y);
     }
 
     private static void StampPattern(IAutomatonEngine engine, int[,] cells, int offsetX, int offsetY)
