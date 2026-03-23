@@ -31,6 +31,7 @@ public sealed class RenderWindow : IDisposable
     private IWindow? _window;
     private GL? _gl;
     private MeshRenderer? _meshRenderer;
+    private TextRenderer? _textRenderer;
     private OrbitCamera? _camera;
     private InputHandler? _inputHandler;
     private int _frameCount;
@@ -38,6 +39,7 @@ public sealed class RenderWindow : IDisposable
     private int _displayFps;
     private int _currentGeneration;
     private bool _cameraInitialized;
+    private bool _isHelpVisible = true;
     private string _statusMessage = "";
     private double _statusTimer;
 
@@ -100,6 +102,7 @@ public sealed class RenderWindow : IDisposable
         var shader = new ShaderProgram(_gl, vertexSource, fragmentSource);
 
         _meshRenderer = new MeshRenderer(_gl, shader);
+        _textRenderer = new TextRenderer(_gl, ShaderDirectory());
 
         // Upload initial mesh if provided
         if (_mesh.VertexCount > 0)
@@ -143,6 +146,10 @@ public sealed class RenderWindow : IDisposable
                 }
                 break;
 
+            case Key.H:
+                _isHelpVisible = !_isHelpVisible;
+                break;
+
             case Key.Escape:
                 _window?.Close();
                 break;
@@ -180,7 +187,69 @@ public sealed class RenderWindow : IDisposable
             _meshRenderer.Draw(model, view, projection, DefaultLightDirection, _camera.Position);
         }
 
+        if (_isHelpVisible)
+            DrawHelpOverlay();
+
         UpdateTitleBar(deltaTime);
+    }
+
+    private static readonly string[] HelpLines =
+    {
+        "CAMERA",
+        "  Left-drag    Rotate",
+        "  Scroll       Zoom",
+        "  Middle-drag  Pan",
+        "",
+        "PATTERNS",
+        "  1  R-pentomino",
+        "  2  Glider Gun",
+        "  3  Acorn",
+        "  4  Random (full)",
+        "  5  Glider",
+        "  6  Soup (central blob)",
+        "",
+        "SETTINGS",
+        "  T  Toggle smooth",
+        "  L  Toggle live growth",
+        "  R  Reload pattern",
+        "",
+        "EXPORT",
+        "  S  Save STL",
+        "  O  Save OBJ",
+        "",
+        "  H  Hide this help",
+        "  Esc  Quit",
+    };
+
+    private void DrawHelpOverlay()
+    {
+        int screenWidth = _window!.Size.X;
+        int screenHeight = _window.Size.Y;
+        const float scale = 2f;
+        const float padding = 16f;
+        float lineHeight = BitmapFont.CharHeight * scale + 2 * scale;
+
+        float panelWidth = 26 * BitmapFont.CharWidth * scale + padding * 2;
+        float panelHeight = HelpLines.Length * lineHeight + padding * 2;
+
+        // Disable depth test for 2D overlay
+        _gl!.Disable(EnableCap.DepthTest);
+        _gl.Disable(EnableCap.CullFace);
+        _gl.Enable(EnableCap.Blend);
+        _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+
+        // Semi-transparent background panel
+        _textRenderer!.DrawPanel(padding, padding, panelWidth, panelHeight,
+                                 new Vector4(0f, 0f, 0f, 0.7f), screenWidth, screenHeight);
+
+        // Help text
+        _textRenderer.DrawText(HelpLines, padding * 2, padding * 2, scale,
+                               new Vector4(1f, 1f, 1f, 0.9f), screenWidth, screenHeight);
+
+        // Restore 3D rendering state
+        _gl.Enable(EnableCap.DepthTest);
+        _gl.Enable(EnableCap.CullFace);
+        _gl.Disable(EnableCap.Blend);
     }
 
     private void ProcessMeshUpdates()
@@ -250,6 +319,7 @@ public sealed class RenderWindow : IDisposable
     private void OnClosing()
     {
         _meshRenderer?.Dispose();
+        _textRenderer?.Dispose();
     }
 
     public void Dispose()
@@ -288,9 +358,13 @@ public sealed class RenderWindow : IDisposable
         return MathF.Max(extent.X, MathF.Max(extent.Y, extent.Z));
     }
 
+    private static string ShaderDirectory()
+    {
+        return Path.Combine(AppContext.BaseDirectory, "Shaders");
+    }
+
     private static string ShaderPath(string fileName)
     {
-        string baseDir = AppContext.BaseDirectory;
-        return Path.Combine(baseDir, "Shaders", fileName);
+        return Path.Combine(ShaderDirectory(), fileName);
     }
 }
